@@ -1,0 +1,721 @@
+{
+  "definition": {
+      "$schema": "https://schema.management.azure.com/providers/Microsoft.Logic/schemas/2016-06-01/workflowdefinition.json#",
+      "actions": {
+          "Filter_GuestUsers_for_only_those_in_the_Partner_Community_Groups": {
+              "inputs": {
+                  "from": "@variables('GuestUsers')",
+                  "where": "@contains(variables('GroupMemberIds'), item()?['id'])"
+              },
+              "runAfter": {
+                  "For_each_GroupId": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Query"
+          },
+          "For_each_GroupId": {
+              "actions": {
+                  "For_each_Group_Member_Id": {
+                      "actions": {
+                          "Append_the_ids_from_the_Compose_to_array_variable_GroupMemberIds": {
+                              "inputs": {
+                                  "name": "GroupMemberIds",
+                                  "value": "@outputs('Compose_GroupMemberIds_to_get_only_the_value_of_property_\"id\"')"
+                              },
+                              "runAfter": {
+                                  "Compose_GroupMemberIds_to_get_only_the_value_of_property_\"id\"": [
+                                      "Succeeded"
+                                  ]
+                              },
+                              "type": "AppendToArrayVariable"
+                          },
+                          "Compose_GroupMemberIds_to_get_only_the_value_of_property_\"id\"": {
+                              "inputs": "@items('For_each_Group_Member_Id')?['id']",
+                              "runAfter": {},
+                              "type": "Compose"
+                          }
+                      },
+                      "foreach": "@body('Parse_Group_members_JSON')?['value']",
+                      "runAfter": {
+                          "Parse_Group_members_JSON": [
+                              "Succeeded"
+                          ]
+                      },
+                      "type": "Foreach"
+                  },
+                  "Get_Partner_Group_member_ids": {
+                      "inputs": {
+                          "headers": {
+                              "Authorization": "Bearer @{body('Parse_JSON_for_access_token')?['access_token']}"
+                          },
+                          "method": "GET",
+                          "queries": {
+                              "$select": "id"
+                          },
+                          "uri": "https://graph.microsoft.com/v1.0/groups/@{items('For_each_GroupId')}/members"
+                      },
+                      "runAfter": {},
+                      "runtimeConfiguration": {
+                          "paginationPolicy": {
+                              "minimumItemCount": 5000
+                          }
+                      },
+                      "type": "Http"
+                  },
+                  "Parse_Group_members_JSON": {
+                      "inputs": {
+                          "content": "@body('Get_Partner_Group_member_ids')",
+                          "schema": {
+                              "properties": {
+                                  "@@odata.context": {
+                                      "type": "string"
+                                  },
+                                  "value": {
+                                      "items": {
+                                          "properties": {
+                                              "@@odata.type": {
+                                                  "type": "string"
+                                              },
+                                              "id": {
+                                                  "type": "string"
+                                              }
+                                          },
+                                          "required": [
+                                              "@@odata.type",
+                                              "id"
+                                          ],
+                                          "type": "object"
+                                      },
+                                      "type": "array"
+                                  }
+                              },
+                              "type": "object"
+                          }
+                      },
+                      "runAfter": {
+                          "Get_Partner_Group_member_ids": [
+                              "Succeeded"
+                          ]
+                      },
+                      "type": "ParseJson"
+                  }
+              },
+              "foreach": "@variables('GroupIds')",
+              "runAfter": {
+                  "Initialize_GroupIds": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Foreach"
+          },
+          "For_each_GuestUsersToBeAdded": {
+              "actions": {
+                  "Does_the_user_exist": {
+                      "actions": {},
+                      "else": {
+                          "actions": {
+                              "Create_new_contact_to_Hubspot": {
+                                  "inputs": {
+                                      "body": {
+                                          "properties": {
+                                              "email": "@{items('For_each_GuestUsersToBeAdded')?['Mail']}",
+                                              "firstname": "@{items('For_each_GuestUsersToBeAdded')?['FirstName']}",
+                                              "lastname": "@{items('For_each_GuestUsersToBeAdded')?['LastName']}"
+                                          }
+                                      },
+                                      "headers": {
+                                          "accept": "application/json",
+                                          "content-type": "application/json; charset=utf-8"
+                                      },
+                                      "method": "POST",
+                                      "uri": "https://api.hubapi.com/crm/v3/objects/contacts?hapikey=@{variables('HubspotApiKey')}"
+                                  },
+                                  "runAfter": {},
+                                  "type": "Http"
+                              }
+                          }
+                      },
+                      "expression": {
+                          "and": [
+                              {
+                                  "greater": [
+                                      "@body('Search_Hubspot_for_existing_user')?['total']",
+                                      0
+                                  ]
+                              }
+                          ]
+                      },
+                      "runAfter": {
+                          "Search_Hubspot_for_existing_user": [
+                              "Succeeded"
+                          ]
+                      },
+                      "type": "If"
+                  },
+                  "Search_Hubspot_for_existing_user": {
+                      "inputs": {
+                          "body": {
+                              "after": 0,
+                              "filterGroups": [
+                                  {
+                                      "filters": [
+                                          {
+                                              "operator": "EQ",
+                                              "propertyName": "email",
+                                              "value": "@{items('For_each_GuestUsersToBeAdded')?['Mail']}"
+                                          }
+                                      ]
+                                  }
+                              ],
+                              "limit": 1,
+                              "properties": [
+                                  "email"
+                              ],
+                              "sorts": [
+                                  "email"
+                              ]
+                          },
+                          "method": "POST",
+                          "uri": "https://api.hubapi.com/crm/v3/objects/contacts/search?hapikey=@{variables('HubspotApiKey')}"
+                      },
+                      "runAfter": {},
+                      "type": "Http"
+                  }
+              },
+              "foreach": "@variables('GuestUsersToBeAdded')",
+              "runAfter": {
+                  "For_each_filtered_GuestUser": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Foreach"
+          },
+          "For_each_filtered_GuestUser": {
+              "actions": {
+                  "Condition": {
+                      "actions": {
+                          "Append_to_array_variable_GuestUsersToBeAdded": {
+                              "inputs": {
+                                  "name": "GuestUsersToBeAdded",
+                                  "value": "@body('Call_ParseFullNameHttp_Function_to_name_parsing')"
+                              },
+                              "runAfter": {
+                                  "Call_ParseFullNameHttp_Function_to_name_parsing": [
+                                      "Succeeded"
+                                  ]
+                              },
+                              "type": "AppendToArrayVariable"
+                          },
+                          "Call_ParseFullNameHttp_Function_to_name_parsing": {
+                              "inputs": {
+                                  "authentication": {
+                                      "audience": "https://management.azure.com",
+                                      "type": "ManagedServiceIdentity"
+                                  },
+                                  "body": {
+                                      "FirstName": "",
+                                      "FullName": "@{items('For_each_filtered_GuestUser')?['displayName']}",
+                                      "LastName": "",
+                                      "Mail": "@{items('For_each_filtered_GuestUser')?['mail']}"
+                                  },
+                                  "function": {
+                                      "id": "{Insert your Function App resource ID here}/functions/ParseFullNameHttp"
+                                  }
+                              },
+                              "runAfter": {},
+                              "type": "Function"
+                          }
+                      },
+                      "else": {
+                          "actions": {
+                              "Append_above_to_array_variable_GuestUsersToBeAdded": {
+                                  "inputs": {
+                                      "name": "GuestUsersToBeAdded",
+                                      "value": "@outputs('Compose_GuestUsers_for_the_GuestUsersToBeAdded_array')"
+                                  },
+                                  "runAfter": {
+                                      "Compose_GuestUsers_for_the_GuestUsersToBeAdded_array": [
+                                          "Succeeded"
+                                      ]
+                                  },
+                                  "type": "AppendToArrayVariable"
+                              },
+                              "Compose_GuestUsers_for_the_GuestUsersToBeAdded_array": {
+                                  "inputs": {
+                                      "FirstName": "@{items('For_each_filtered_GuestUser')?['givenName']}",
+                                      "FullName": "@{items('For_each_filtered_GuestUser')?['displayName']}",
+                                      "LastName": "@{items('For_each_filtered_GuestUser')?['surname']}",
+                                      "Mail": "@{items('For_each_filtered_GuestUser')?['mail']}"
+                                  },
+                                  "runAfter": {},
+                                  "type": "Compose"
+                              }
+                          }
+                      },
+                      "expression": {
+                          "and": [
+                              {
+                                  "equals": [
+                                      "@items('For_each_filtered_GuestUser')?['givenName']",
+                                      "@null"
+                                  ]
+                              }
+                          ]
+                      },
+                      "runAfter": {},
+                      "type": "If"
+                  }
+              },
+              "foreach": "@body('Filter_GuestUsers_for_only_those_in_the_Partner_Community_Groups')",
+              "runAfter": {
+                  "Initialize_variable_GuestUsersToBeAdded": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Foreach"
+          },
+          "Get_Access_Token": {
+              "inputs": {
+                  "body": "grant_type=client_credentials&client_id=@{variables('AppID')}&client_secret=@{variables('AppSecret')}&resource=https://graph.microsoft.com",
+                  "headers": {
+                      "Content-Type": "application/x-www-form-urlencoded"
+                  },
+                  "method": "POST",
+                  "uri": "https://login.microsoftonline.com/@{variables('TenandID')}/oauth2/token"
+              },
+              "runAfter": {
+                  "Initialize_HubspotApiKey": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          },
+          "Get_AppId": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/AppId"
+              },
+              "runAfter": {
+                  "Get_TenantId": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          },
+          "Get_AppSecret": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/AppSecret"
+              },
+              "runAfter": {
+                  "Get_AppId": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          },
+          "Get_Guest_users_that_have_accepted_the_invitation": {
+              "inputs": {
+                  "headers": {
+                      "Authorization": "Bearer @{body('Parse_JSON_for_access_token')?['access_token']}"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "$filter": "userType eq 'Guest' AND externalUserState eq 'Accepted' AND externalUserStateChangeDateTime ge @{variables('LastRun')}",
+                      "$select": "userType,externalUserState,externalUserStateChangeDateTime,mail,givenName,surname,displayName,id"
+                  },
+                  "uri": "https://graph.microsoft.com/v1.0/users"
+              },
+              "runAfter": {
+                  "Parse_JSON_for_access_token": [
+                      "Succeeded"
+                  ]
+              },
+              "runtimeConfiguration": {
+                  "paginationPolicy": {
+                      "minimumItemCount": 5000
+                  }
+              },
+              "type": "Http"
+          },
+          "Get_HubspotApiKey": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/HubspotApiKey"
+              },
+              "runAfter": {
+                  "Get_LastRun": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          },
+          "Get_LastRun": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/LastRun"
+              },
+              "runAfter": {
+                  "Get_AppSecret": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          },
+          "Get_TenantId": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "method": "GET",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/TenantId"
+              },
+              "runAfter": {},
+              "type": "Http"
+          },
+          "Initialize_AppID": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "AppID",
+                          "type": "string",
+                          "value": "@{body('Get_AppId')?['value']}"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_TenantID": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_AppSecret": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "AppSecret",
+                          "type": "string",
+                          "value": "@{body('Get_AppSecret')?['value']}"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_AppID": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_GroupIds": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "GroupIds",
+                          "type": "array",
+                          "value": []
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_GroupMemberIds": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_GroupMemberIds": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "GroupMemberIds",
+                          "type": "array",
+                          "value": []
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_GuestUsers": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_GuestUsers": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "GuestUsers",
+                          "type": "array",
+                          "value": "@body('Parse_Guest_users_JSON')?['value']"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Is_there_new_users_to_process": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_HubspotApiKey": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "HubspotApiKey",
+                          "type": "string",
+                          "value": "@{body('Get_HubspotApiKey')?['value']}"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_LastRun": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_LastRun": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "LastRun",
+                          "type": "string",
+                          "value": "@{body('Get_LastRun')?['value']}"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Initialize_AppSecret": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_TenantID": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "TenandID",
+                          "type": "string",
+                          "value": "@{body('Get_TenantId')?['value']}"
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Get_HubspotApiKey": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Initialize_variable_GuestUsersToBeAdded": {
+              "inputs": {
+                  "variables": [
+                      {
+                          "name": "GuestUsersToBeAdded",
+                          "type": "array",
+                          "value": []
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Filter_GuestUsers_for_only_those_in_the_Partner_Community_Groups": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "InitializeVariable"
+          },
+          "Is_there_new_users_to_process": {
+              "actions": {},
+              "else": {
+                  "actions": {
+                      "Terminate": {
+                          "description": "LastRun timestamp is not updated",
+                          "inputs": {
+                              "runStatus": "Succeeded"
+                          },
+                          "runAfter": {},
+                          "type": "Terminate"
+                      }
+                  }
+              },
+              "expression": {
+                  "and": [
+                      {
+                          "greater": [
+                              "@length(body('Parse_Guest_users_JSON')?['value'])",
+                              0
+                          ]
+                      }
+                  ]
+              },
+              "runAfter": {
+                  "Parse_Guest_users_JSON": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "If"
+          },
+          "Parse_Guest_users_JSON": {
+              "inputs": {
+                  "content": "@body('Get_Guest_users_that_have_accepted_the_invitation')",
+                  "schema": {
+                      "properties": {
+                          "@@odata.context": {
+                              "type": "string"
+                          },
+                          "value": {
+                              "items": {
+                                  "properties": {
+                                      "externalUserState": {
+                                          "type": "string"
+                                      },
+                                      "externalUserStateChangeDateTime": {
+                                          "type": "string"
+                                      },
+                                      "givenName": {},
+                                      "id": {
+                                          "type": "string"
+                                      },
+                                      "mail": {
+                                          "type": "string"
+                                      },
+                                      "surname": {},
+                                      "userType": {
+                                          "type": "string"
+                                      }
+                                  },
+                                  "required": [
+                                      "userType",
+                                      "externalUserState",
+                                      "externalUserStateChangeDateTime",
+                                      "mail",
+                                      "givenName",
+                                      "surname",
+                                      "id"
+                                  ],
+                                  "type": "object"
+                              },
+                              "type": "array"
+                          }
+                      },
+                      "type": "object"
+                  }
+              },
+              "runAfter": {
+                  "Get_Guest_users_that_have_accepted_the_invitation": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "ParseJson"
+          },
+          "Parse_JSON_for_access_token": {
+              "inputs": {
+                  "content": "@body('Get_Access_Token')",
+                  "schema": {
+                      "properties": {
+                          "access_token": {
+                              "type": "string"
+                          },
+                          "expires_in": {
+                              "type": "string"
+                          },
+                          "expires_on": {
+                              "type": "string"
+                          },
+                          "ext_expires_in": {
+                              "type": "string"
+                          },
+                          "not_before": {
+                              "type": "string"
+                          },
+                          "resource": {
+                              "type": "string"
+                          },
+                          "token_type": {
+                              "type": "string"
+                          }
+                      },
+                      "type": "object"
+                  }
+              },
+              "runAfter": {
+                  "Get_Access_Token": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "ParseJson"
+          },
+          "Update_LastRun_to_KeyVault": {
+              "inputs": {
+                  "authentication": {
+                      "audience": "https://vault.azure.net",
+                      "type": "ManagedServiceIdentity"
+                  },
+                  "body": {
+                      "value": "@{utcNow()}"
+                  },
+                  "method": "PUT",
+                  "queries": {
+                      "api-version": "2016-10-01"
+                  },
+                  "uri": "https://vault_name_here.vault.azure.net/secrets/LastRun"
+              },
+              "runAfter": {
+                  "For_each_GuestUsersToBeAdded": [
+                      "Succeeded"
+                  ]
+              },
+              "type": "Http"
+          }
+      },
+      "contentVersion": "1.0.0.0",
+      "outputs": {},
+      "parameters": {},
+      "triggers": {
+          "Execution_schedule": {
+              "recurrence": {
+                  "frequency": "Day",
+                  "interval": 1,
+                  "startTime": "2021-01-13T00:00:00Z"
+              },
+              "type": "Recurrence"
+          }
+      }
+  },
+  "parameters": {}
+}
