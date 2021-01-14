@@ -54,7 +54,9 @@ The workflow is configured to run once every day at midnight UTC time.
 
 1. Add new App Registration for the Logic App.
 2. Create a client secret and copy the value to your notes.
+
     ![Client secret](assets/app-registration-secret.png)
+
 3. Add API permissions as needed. The example has these two:
     - **User.Read.All** (for getting all users from Azure AD)
     - **GroupMember.Read.All** (for reading group memberships)
@@ -67,7 +69,9 @@ The workflow is configured to run once every day at midnight UTC time.
 
 1. Create a new Logic App
 2. Create a managed identity
+
     ![Managed Identity](assets/logicapp-managed-identity.png)
+
 3. Copy the **Object ID** to your notes.
 
 ### 3. Key Vault
@@ -78,17 +82,20 @@ The workflow is configured to run once every day at midnight UTC time.
     - **AppSecret** (Client Secret of the Azure AD App)
     - **HubspotApiKey** (API Key of the Hubspot)
     - **LastRun** (Timestamp for when the last run was executed)
-        - Set initial value to a day from where you want new users to be processed. Format in ISO 8601: `2021-01-14T00:00:00Z`
+        - Set an initial value to a day from where you want new users to be processed. Format in ISO 8601: `2021-01-14T00:00:00Z`
     - **TenantId** (Tenant ID of the Azure AD)
     ![Key Vault Secrets](assets/keyvault-secrets.png)
 3. Add a new Access Policy that is named after your Logic App and give it **Get**, **List**, and **Set** permissions for secrets
+
     ![Key Vault access policies](assets/keyvault-access-policies.png)
 
 ### 4. Azure Function
 
 1. Create a Function App
 2. Go to **Authentication / Authorizing**, enable authentication, and select Azure Active Directory
-  ![Function App Authentication](assets/functionapp-authentication.png)
+
+    ![Function App Authentication](assets/functionapp-authentication.png)
+
 3. Configure the authentication as follows:
     - **Client ID**: Paste the *Object ID* from the Logic App managed identity here.
     - **Issuer Url**: `https://sts.windows.net/{Insert the TenantId here}`
@@ -98,22 +105,30 @@ The workflow is configured to run once every day at midnight UTC time.
     - Deploy the **ParseFullNameHttp.zip** with the instructions found in [MS Article](https://docs.microsoft.com/en-us/azure/azure-functions/deployment-zip-push).
     - Open the Visual Studio solution in the folder **PartnerOnboardingWorkflowFunctions** and publish using a publish profile found in the Functions App.
 5. Go to the Properties page and copy the **Resource ID** to your notes.
-  ![Function App Properties/Resource ID](assets/functionapp-properties-resource-id.png)
+
+    ![Function App Properties/Resource ID](assets/functionapp-properties-resource-id.png)
 
 ### 5. Modify the `logic-app-code.json` for your environment
 
 1. Find a string **/functions/ParseFullNameHttp** and paste your **Resource ID** before that string.
-  ![Logic App code - Resource ID](assets/logic-app-code-function-resourceid.png)
+
+    ![Logic App code - Resource ID](assets/logic-app-code-function-resourceid.png)
+
 2. Find 6 instances of string **vault_name_here** and modify it to match your Key Vault URI. You can check that value from the Overview page of the Key Vault in Azure.
-  ![Logic App code - Key Vault URI](assets/logic-app-code-keyvault-uri.png)
+
+    ![Logic App code - Key Vault URI](assets/logic-app-code-keyvault-uri.png)
+
 3. Find string **Initialize_GroupIds** that is an action type of InitializeVariable. Fill the value array with Group IDs to define that the new user has to be a member in one of the groups.
+
     ![Logic App code - Group IDs](assets/logic-app-code-group-ids.png)
 
 ### 6. Copy the contents of `logic-app-code-json` to Logic App
 
 1. Open the Logic App and navigate to the **code view**.
 2. Copy/paste your modified logic app code to the view.
-  ![Logic App Code view](assets/logic-app-code-view.png)
+
+    ![Logic App Code view](assets/logic-app-code-view.png)
+
 3. Click **Save** and cross your fingers that the save succeeds.
 4. If the save is successful, change to the **Designer** view.
 5. Make any necessary changes to the workflow depending on the use case and try to run it.
